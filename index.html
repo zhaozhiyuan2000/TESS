@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="TESS：面向 warp-specialized 编程模型的 Tile/Event 级静态调度理论性能推演模拟器。">
+  <meta name="theme-color" content="#ffffff">
+  <title>TESS · 项目说明与推演示例</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <meta name="author" content="zhaozhiyuan">
+  <link rel="stylesheet" href="styles.css?v=8">
+  <script src="static.js?v=2" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">跳至正文</a>
+<header class="site-header wrap">
+  <a class="brand" href="#approach">TESS</a>
+  <nav aria-label="主导航"><a href="#evidence">推演输出</a><a href="#uses">用途</a><a href="#case-studies">案例</a><a href="#workflow">AI 工作流</a><a href="#boundaries">边界与区别</a><a href="#editor">编辑器</a></nav>
+</header>
+<main id="main" class="wrap">
+  <section id="approach" class="overview section">
+    <h1>TESS <span class="project-full-name">Tile/Event Static Simulator</span></h1>
+    <p class="author-credit">制作者：zhaozhiyuan · <a href="mailto:15056087685@163.com">15056087685@163.com</a></p>
+    <p class="subtitle">面向 warp-specialized 编程模型的 Tile/Event 级静态调度理论性能推演模拟器</p>
+    <p class="overview-text">通过配置描述软件事件流、硬件资源与数据通路，在给定效率假设下推演执行周期、资源利用率、流水掩盖关系、依赖等待和片上存储占用，用于软件方案分析、硬件实现调试及架构探索。</p>
+    <dl class="project-meta">
+      <div><dt>硬件模型</dt><dd>NVIDIA B200 单 SM，以及 B200 / B300 CTA Pair。</dd></div>
+      <div><dt>软件用例</dt><dd>MHA、MLA 及相关变体。</dd></div>
+      <div><dt>工程实现</dt><dd>使用 Python 开发、Codex 辅助实现；包含 CLI、Python API 和事件卡片编辑器。</dd></div>
+    </dl>
+  </section>
+
+  <section id="evidence" class="section">
+    <h2>推演输出</h2>
+    <p class="section-intro">B300 CTA Pair 的 FlashAttention 推演示例。图表由 TESS 生成，展示计算与搬运时序、流水重叠，以及 SMEM / TMEM 物理槽的生命周期。</p>
+    <div class="case-toolbar"><div class="segmented" role="group" aria-label="选择结果图"><button class="selected" data-case="b300" aria-pressed="true">B300 · FA4 · CTA Pair</button></div><a id="full-chart-link" href="assets/b300-gantt.svg?v=7" target="_blank" rel="noopener">查看原图</a></div>
+    <figure class="evidence-figure"><div class="annotated-chart"><img id="case-image" src="assets/b300-gantt.svg?v=7" alt="B300 FA4 CTA Pair 执行时间线与 SMEM、TMEM stage 生命周期" loading="lazy"><div id="chart-annotations" class="chart-annotations" aria-hidden="true"></div></div><figcaption id="case-caption">B300 理论模型 · BF16 · Q=512 / KV=512 / D=128 · 双 SM 聚合</figcaption></figure>
+    <div class="chart-guide" role="group" aria-label="读图指引，选择后高亮对应区域"><button data-guide="timing" aria-pressed="false"><strong>A · 计算与搬运时序</strong><span>上部泳道：TMA_IN / OUT 表示搬运，TC 表示矩阵计算，CUDA_CORE 表示 Softmax 与修正。横轴位置表示时间，色块表示事件。</span></button><button data-guide="overlap" aria-pressed="false"><strong>B · 流水重叠</strong><span>选择后高亮同一时段内同时工作的泳道。竖向对齐观察搬运、矩阵计算与 Softmax 的重叠。</span></button><button data-guide="memory" aria-pressed="false"><strong>C · SMEM / TMEM 生命周期</strong><span>C1 / C2 对应两组物理槽。每行是一个槽；写入、就绪等待、使用/保留和释放按时间展开，同一槽可被后续 Tile 复用。</span></button></div>
+    <p id="chart-guide-detail" class="chart-guide-detail" aria-live="polite" hidden></p>
+  </section>
+
+  <section id="uses" class="section">
+    <h2>用途</h2>
+    <p class="section-intro">软件方案、架构配置与实现调试使用同一份 Tile/Event 描述。分析对象包括总周期，关键资源利用率，也包括事件为什么等待、计算与搬运如何重叠、存储何时分配和释放。</p>
+    <div class="table-scroll"><table class="info-table uses-table"><thead><tr><th scope="col">使用者</th><th scope="col">分析与决策</th></tr></thead><tbody>
+      <tr><th scope="row">软件工程师</th><td><strong>在实现前或优化过程中预演软件流水。</strong>分析 Tile 划分、预取深度、发射顺序和多 lane 排布，检查搬运能否被计算掩盖、空泡在等待哪个输入，以及 stage 与片上存储是否足够。修改方案后对比周期、等待和物理占用，减少进入 CA/RTL 仿真前的试错成本。</td></tr>
+      <tr><th scope="row">硬件工程师</th><td><strong>将设计预期转为 CA/RTL 可逐事件对照的性能基线。</strong>核对实际启动、完成、依赖和资源并发是否符合预期，追踪额外仲裁、反压或同步等待。将偏差区分为软硬件实现问题、原始效率假设问题或模型遗漏，再通过新波形检查修正效果。</td></tr>
+      <tr><th scope="row">架构师</th><td><strong>快速搭建新架构的理论模型，探索资源空间并辅助定义架构 SPEC。</strong>配置 CP、MEM 和数据通路，评估计算吞吐、搬运带宽、读取延迟及片上容量的变化，判断新增资源是否改善关键路径。结合目标算子所需的吞吐、带宽、容量和时延条件，为 SPEC 中的资源配置与性能目标提供依据。既可固定软件方案分析硬件收益，也可重新调整 Tile、stage 与调度，探索软硬件联合优化方案。</td></tr>
+    </tbody></table></div>
+  </section>
+
+  <!-- CASE_STUDIES_START -->
+  <section id="case-studies" class="section">
+    <h2>参数变化，流水哪里受影响？</h2>
+    <article class="study" id="study-softmax">
+      <div class="study-heading"><h3>01 · Softmax 效率减半：0.5 → 0.25</h3><span>总周期 +20.2% · 13,940 → 16,756 clk</span></div>
+      <figure class="study-figure"><div class="study-chart-scroll"><a href="assets/compare-softmax.svg?v=367ad727f3" target="_blank" rel="noopener" aria-label="放大查看Softmax 效率减半前后的时间线：TC 等待 Softmax 输出的 bubble 变长、增多"><img src="assets/compare-softmax.svg?v=367ad727f3" alt="Softmax 效率减半前后的时间线：TC 等待 Softmax 输出的 bubble 变长、增多" loading="lazy"></a></div><figcaption><span>原生执行时间线 · 红框标出 bubble</span><a href="assets/compare-softmax.svg?v=367ad727f3" target="_blank" rel="noopener">放大查看 ↗</a></figcaption></figure>
+      <p class="study-takeaway">Softmax 输出变晚，TC 等待输入的 bubble 变长、增多，流水完成时间随之推迟，softmax瓶颈将严重影响tensor core的计算效率。</p>
+    </article>
+    <article class="study" id="study-stage">
+      <div class="study-heading"><h3>02 · KV stage 减半：6 → 3</h3><span>总周期不变 · 13,940 clk</span></div>
+      <figure class="study-figure"><div class="study-chart-scroll"><a href="assets/compare-stage.svg?v=8648616491" target="_blank" rel="noopener" aria-label="放大查看KV stage 从 6 减到 3：基线与减半后的时间线，TMA_IN 新增的三个槽位等待 bubble 已标红"><img src="assets/compare-stage.svg?v=8648616491" alt="KV stage 从 6 减到 3：基线与减半后的时间线，TMA_IN 新增的三个槽位等待 bubble 已标红" loading="lazy"></a></div><figcaption><span>原生执行时间线 · 红框标出 bubble</span><a href="assets/compare-stage.svg?v=8648616491" target="_blank" rel="noopener">放大查看 ↗</a></figcaption></figure>
+      <p class="study-takeaway">TMA_IN 新增槽位等待，TC 时序保持不变；当前模型与负载下，3 个 KV stage 已能维持原有性能，可以看出对本CASE，Shared mem空间冗余。</p>
+    </article>
+  </section>
+  <!-- CASE_STUDIES_END -->
+
+  <section id="workflow" class="section">
+    <h2>AI 工作流</h2>
+    <p class="section-intro">项目提供三个性能分析 Skill。事件模型与结构化输出记录软件排布、资源约束和等待关系，供 AI 建模、比较方案及对照实现。</p>
+    <div class="table-scroll"><table class="info-table skill-table"><thead><tr><th scope="col">工作流</th><th scope="col">输入与输出</th></tr></thead><tbody>
+      <tr><th scope="row">1. Kernel → Events</th><td>读取 kernel 和硬件配置，抽象主要计算、搬运、依赖及物理存储生命周期，生成 events.json（模拟器的输入）。</td></tr>
+      <tr><th scope="row">2. 事件排布优化</th><td>在计算语义、工作量和访存约束下生成与检查候选排布，对比周期、空泡、资源利用率和存储占用。</td></tr>
+      <tr><th scope="row">3. 推演与波形对照</th><td><strong>将模拟器输出作为 AI 性能调优（自动分析 kernel 与波形）的中间层。</strong>把 kernel 中的主要动作与真实执行阶段映射到同一组事件，对照理论时序、数据就绪条件与实际等待，分析执行是否符合预期。</td></tr>
+    </tbody></table></div>
+    <h3 class="subsection-heading">第三个 Skill：通过事件与依赖理解流水掩盖</h3>
+    <p class="workflow-text">summary.json / trace.json 提供事件的启动、吞吐窗口结束、完成时刻，以及空泡原因、等待的 Tile、对应生产者和存储生命周期。AI 可以沿这些关系检查：预取是否及时，数据就绪前是否还有计算可覆盖等待，以及实际波形中新增的空泡出现在什么位置。</p>
+    <div class="workflow-path" aria-label="AI 性能分析流程"><div><span class="flow-label">理论基线</span><span>Kernel → Tile/Event 模型 → TESS 理论时序与依赖</span></div><div><span class="flow-label">实际执行</span><span>Kernel → FSDB / Verdi → 执行阶段提取与事件映射</span></div><div class="flow-result"><span class="flow-label">对照分析</span><span>两路结果 → AI 对齐事件、检查流水掩盖、归因执行偏差</span></div></div>
+  </section>
+
+  <section id="boundaries" class="section">
+    <h2>模拟器边界及与 CA/RTL 的区别</h2>
+    <p class="section-intro">TESS 描述设计人员在给定架构、软件排布和效率假设下的理论执行过程。它用于提出并检查性能预期；CA/RTL 用于观察更接近实际实现的执行行为，两者在优化与调试中相互对照。</p>
+    <div class="table-scroll"><table class="info-table comparison-table"><thead><tr><th scope="col">维度</th><th scope="col">TESS 理论推演</th><th scope="col">CA / RTL 仿真</th></tr></thead><tbody>
+      <tr><th scope="row">主要目标</th><td>建立设计的性能预期，分析优化方向，并推动软硬件实现接近经检查的预期。</td><td>CA 模型以尽可能贴近 RTL 的执行行为为目标；RTL 仿真用于检查具体实现的逻辑和时序表现。</td></tr>
+      <tr><th scope="row">描述内容</th><td>Tile/Event、依赖、吞吐、延迟、资源共享与存储生命周期，由配置和软件排布显式描述。</td><td>依据具体模型或 RTL 表达实现机制，例如发射、仲裁、反压与同步等细节。</td></tr>
+      <tr><th scope="row">如何使用结果</th><td>在实现前比较方案，在实现后作为波形对照基线，检查偏差来源。</td><td>观察实际执行过程，验证设计，并定位实现中的功能或性能问题。</td></tr>
+    </tbody></table></div>
+    <p class="boundary-position"><strong>CA 以贴近 RTL 为目标；TESS 提供设计人员的理论性能预期，推动 RTL 实现尽可能接近这一预期。</strong>这一预期需要有合理的参数与假设支撑，也可由RTL实际实现情况调整预期。</p>
+  </section>
+
+  <section id="related-work" class="section">
+    <h2>与公开工作的区别</h2>
+    <p class="section-intro">TESS 与这些工具的共同点是都能支持架构分析，但目标和使用阶段不同：Timeloop 侧重映射空间搜索，Accel-Sim 侧重从指令执行行为得到接近硬件的结果；TESS 侧重把设计人员选定的 Tile/Event 静态排布推演成可检查的理论时序。</p>
+    <div class="table-scroll"><table class="info-table related-table"><thead><tr><th scope="col">公开工作</th><th scope="col">输入、目标与典型输出</th><th scope="col">TESS 的侧重点与边界</th></tr></thead><tbody>
+      <tr><th scope="row"><a href="https://research.nvidia.com/publication/2019-03_timeloop-systematic-approach-dnn-accelerator-evaluation" target="_blank" rel="noopener">Timeloop ↗</a></th><td><strong>输入：</strong>加速器层次结构、存储层级、数据流和映射约束。<br><strong>目标：</strong>在较大的 mapping 空间中搜索并评估 DNN 工作负载的性能、数据移动和能效。<br><strong>输出：</strong>不同映射方案的聚合代价，帮助比较架构和映射选择。</td><td>两者都可以用于架构探索，但 TESS 从一个明确的 Tile 划分和事件排布开始，继续展开到每个搬运、计算、依赖等待和存储槽生命周期的时间关系。它回答的是“这套排布为什么形成这些周期和 bubble、哪一类资源限制了它”，不负责替代 Timeloop 的大范围映射搜索。</td></tr>
+      <tr><th scope="row"><a href="https://accel-sim.github.io/" target="_blank" rel="noopener">Accel-Sim ↗</a></th><td><strong>输入：</strong>可执行 CUDA kernel 产生的指令 trace，以及 GPU 微架构和执行参数。<br><strong>目标：</strong>重现指令级、warp 级和微架构资源的执行行为，并通过硬件结果校准模拟精度。<br><strong>输出：</strong>接近实际 GPU 执行的周期、吞吐和性能计数器，用于性能预测与验证。</td><td>TESS 的输入是设计阶段可编辑的架构资源和 Tile/Event 静态调度，不需要先有完整的可执行 kernel，也不模拟指令发射、缓存命中、warp 分歧或动态仲裁。它先给出理论基线，再把理论事件与 CA/RTL 或 FSDB 中的执行阶段对齐，帮助定位预取、依赖和流水掩盖是否按设计发生；真实硬件行为仍需由 CA/RTL 和波形验证。</td></tr>
+    </tbody></table></div>
+    <p class="related-note"><strong>核心区别：</strong>TESS 的结果不是“尽可能准确地复现现有硬件”，而是把架构师和软件工程师的静态调度设想转成一份可复现、可解释、可与实现逐事件对照的性能预期，用于指导架构 SPEC、软件优化以及后续 CA/RTL 调试。</p>
+  </section>
+
+  <section id="editor" class="section">
+    <h2>事件卡片编辑器</h2>
+    <div class="editor-layout"><div><p>事件卡片编辑器将 kernel 参数、事件排布、依赖连线和 stage 约束放在同一工作界面中。这里展示编辑器截图，用于说明软件事件如何被组织和检查。</p></div><button class="editor-screenshot" id="editor-image-button" aria-label="放大查看事件卡片编辑器"><img src="assets/editor-workbench.png?v=6" alt="事件卡片编辑器：参数、事件卡片、依赖连线与事件详情" loading="lazy"><span>查看完整截图</span></button></div>
+  </section>
+
+</main>
+<footer class="site-footer wrap"><p>TESS · 项目展示</p><p id="author-line">制作者：zhaozhiyuan · <a href="mailto:15056087685@163.com">15056087685@163.com</a></p></footer>
+<dialog id="image-dialog"><form method="dialog"><button class="dialog-close" aria-label="关闭大图">关闭 ×</button></form><img src="assets/editor-workbench.png?v=6" alt="事件卡片编辑器完整界面"></dialog>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "renderer": "private native gantt renderer",
+  "display_name": "TESS",
+  "palette": "current",
+  "style": "dashboard",
+  "revision": "677f77e2ad37",
+  "cases": [
+    "b300"
+  ]
+}
